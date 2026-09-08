@@ -16,13 +16,15 @@ const adminRoutes = require("./routes/admin");
 const app = express();
 
 const PORT = process.env.PORT || 3000;
+const sessionDir = process.env.DATABASE_DIR || path.join(__dirname, "database");
 
 
 // =========================
 // Middleware
 // =========================
 
-app.use(express.json());
+// 圖片會以 base64 隨 JSON 傳送；2 MB 原圖編碼後約 2.7 MB。
+app.use(express.json({ limit: "3mb" }));
 
 app.use(
     cors({
@@ -40,7 +42,7 @@ app.use(
     session({
         store: new SQLiteStore({
             db: "sessions.db",
-            dir: path.join(__dirname, "database")
+            dir: sessionDir
         }),
 
         secret: process.env.SESSION_SECRET,
@@ -66,6 +68,15 @@ app.use(
 app.use("/api/auth", authRoutes);
 app.use("/api/poll", pollRoutes);
 app.use("/api/admin", adminRoutes);
+
+// 一律以 JSON 回傳 API 錯誤，避免前端收到 HTML 而只顯示「伺服器回應錯誤」。
+app.use("/api", (error, req, res, next) => {
+    console.error("API error:", error.message);
+    if (error.type === "entity.too.large") {
+        return res.status(413).json({ success: false, message: "圖片檔案過大，請使用 2 MB 以下的圖片" });
+    }
+    res.status(error.status || 500).json({ success: false, message: "伺服器處理資料時發生錯誤" });
+});
 
 
 // =========================

@@ -22,33 +22,41 @@ async function dashboard() {
 
 router.get("/dashboard", ...adminOnly, async (req, res) => { try { res.json({ success: true, ...(await dashboard()) }); } catch { res.status(500).json({ success: false, message: "無法取得管理資料" }); } });
 router.put("/status", ...adminOnly, async (req, res) => {
-    const { status } = req.body;
-    if (!["not_started", "open", "ended"].includes(status)) return res.status(400).json({ success: false, message: "無效的投票狀態" });
-    await run("UPDATE settings SET value = ? WHERE key = 'poll_status'", [status]);
-    res.json({ success: true, message: "投票狀態已更新", ...(await dashboard()) });
+    try {
+        const { status } = req.body;
+        if (!["not_started", "open", "ended"].includes(status)) return res.status(400).json({ success: false, message: "無效的投票狀態" });
+        await run("UPDATE settings SET value = ? WHERE key = 'poll_status'", [status]);
+        res.json({ success: true, message: "投票狀態已更新", ...(await dashboard()) });
+    } catch (error) { console.error(error); res.status(500).json({ success: false, message: "投票狀態更新失敗" }); }
 });
 router.put("/schedule", ...adminOnly, async (req, res) => {
-    const { pollDate = "", startAt = "", endAt = "" } = req.body;
-    if (startAt && endAt && new Date(startAt) >= new Date(endAt)) return res.status(400).json({ success: false, message: "結束時間必須晚於開始時間" });
-    await run("UPDATE settings SET value = ? WHERE key = 'poll_date'", [pollDate]);
-    await run("UPDATE settings SET value = ? WHERE key = 'poll_start_at'", [startAt]);
-    await run("UPDATE settings SET value = ? WHERE key = 'poll_end_at'", [endAt]);
-    res.json({ success: true, message: "日期與投票時間已儲存", ...(await dashboard()) });
+    try {
+        const { pollDate = "", startAt = "", endAt = "" } = req.body;
+        if (startAt && endAt && new Date(startAt) >= new Date(endAt)) return res.status(400).json({ success: false, message: "結束時間必須晚於開始時間" });
+        await run("UPDATE settings SET value = ? WHERE key = 'poll_date'", [pollDate]);
+        await run("UPDATE settings SET value = ? WHERE key = 'poll_start_at'", [startAt]);
+        await run("UPDATE settings SET value = ? WHERE key = 'poll_end_at'", [endAt]);
+        res.json({ success: true, message: "日期與投票時間已儲存", ...(await dashboard()) });
+    } catch (error) { console.error(error); res.status(500).json({ success: false, message: "時間設定儲存失敗" }); }
 });
 router.post("/snacks", ...adminOnly, async (req, res) => {
-    const { name, description = "", price = null, category = "snack", imageUrl = "" } = req.body;
-    if (!name?.trim()) return res.status(400).json({ success: false, message: "請輸入點心名稱" });
-    if (!["snack", "drink"].includes(category)) return res.status(400).json({ success: false, message: "品項分類無效" });
-    if (imageUrl && (!imageUrl.startsWith("data:image/") || imageUrl.length > 3000000)) return res.status(400).json({ success: false, message: "圖片格式不正確或檔案過大（最多 2 MB）" });
-    await run("INSERT INTO snacks (name, description, price, image_url, category, sort_order) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM snacks), 1))", [name.trim(), description.trim(), Number.isFinite(Number(price)) ? Number(price) : null, imageUrl, category]);
-    res.json({ success: true, ...(await dashboard()) });
+    try {
+        const { name, description = "", price = null, category = "snack", imageUrl = "" } = req.body;
+        if (!name?.trim()) return res.status(400).json({ success: false, message: "請輸入點心名稱" });
+        if (!["snack", "drink"].includes(category)) return res.status(400).json({ success: false, message: "品項分類無效" });
+        if (imageUrl && (!imageUrl.startsWith("data:image/") || imageUrl.length > 3000000)) return res.status(400).json({ success: false, message: "圖片格式不正確或檔案過大（最多 2 MB）" });
+        await run("INSERT INTO snacks (name, description, price, image_url, category, sort_order) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT MAX(sort_order) + 1 FROM snacks), 1))", [name.trim(), description.trim(), Number.isFinite(Number(price)) ? Number(price) : null, imageUrl, category]);
+        res.json({ success: true, ...(await dashboard()) });
+    } catch (error) { console.error(error); res.status(500).json({ success: false, message: "新增品項失敗" }); }
 });
 router.put("/snacks/:id", ...adminOnly, async (req, res) => {
+    try {
     const { name, description = "", price = null, active, category = "snack", imageUrl = "" } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, message: "請輸入點心名稱" });
     if (!["snack", "drink"].includes(category)) return res.status(400).json({ success: false, message: "品項分類無效" });
     if (imageUrl && (!imageUrl.startsWith("data:image/") || imageUrl.length > 3000000)) return res.status(400).json({ success: false, message: "圖片格式不正確或檔案過大（最多 2 MB）" });
     await run("UPDATE snacks SET name = ?, description = ?, price = ?, image_url = ?, category = ?, active = ? WHERE id = ?", [name.trim(), description.trim(), Number.isFinite(Number(price)) ? Number(price) : null, imageUrl, category, active ? 1 : 0, req.params.id]);
     res.json({ success: true, ...(await dashboard()) });
+    } catch (error) { console.error(error); res.status(500).json({ success: false, message: "品項修改失敗" }); }
 });
 module.exports = router;

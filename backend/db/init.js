@@ -13,6 +13,12 @@ function run(sql, params = []) {
     });
 }
 
+function all(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows));
+    });
+}
+
 async function addColumn(sql) {
     try { await run(sql); } catch (error) {
         if (!String(error.message).includes("duplicate column name")) throw error;
@@ -50,6 +56,15 @@ async function initDatabase() {
     `);
     // 為既有資料庫補齊後續新增欄位。
     await addColumn("ALTER TABLE snacks ADD COLUMN category TEXT NOT NULL DEFAULT 'snack'");
+    await run("UPDATE snacks SET category = 'drink' WHERE name IN ('珍珠奶茶', '水果優格杯') AND category = 'snack'");
+
+    // 系統設定（必須先建立，後面才可寫入預設值）
+    await run(`
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    `);
 
     // 投票
     await run(`
@@ -67,18 +82,33 @@ async function initDatabase() {
                 REFERENCES snacks(id)
         )
     `);
+    // 舊版只允許每人一票；升級為每人每一分類各一票。
+    const voteColumns = await all("PRAGMA table_info(votes)");
+    if (!voteColumns.some(column => column.name === "category")) {
+        await run("BEGIN TRANSACTION");
+        try {
+            await run(`CREATE TABLE votes_next (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                snack_id INTEGER NOT NULL,
+                category TEXT NOT NULL CHECK(category IN ('snack', 'drink')),
+                voted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, category),
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(snack_id) REFERENCES snacks(id)
+            )`);
+            await run(`INSERT INTO votes_next (id, user_id, snack_id, category, voted_at)
+                       SELECT v.id, v.user_id, v.snack_id, COALESCE(s.category, 'snack'), v.voted_at
+                       FROM votes v LEFT JOIN snacks s ON s.id = v.snack_id`);
+            await run("DROP TABLE votes");
+            await run("ALTER TABLE votes_next RENAME TO votes");
+            await run("COMMIT");
+        } catch (error) { await run("ROLLBACK"); throw error; }
+    }
 
     await run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('poll_date', '')`);
     await run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('poll_start_at', '')`);
     await run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('poll_end_at', '')`);
-
-    // 系統設定
-    await run(`
-        CREATE TABLE IF NOT EXISTS settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL
-        )
-    `);
 
     // 預設投票狀態
     await run(`

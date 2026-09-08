@@ -23,16 +23,19 @@ async function getPollState() {
 async function snapshot(userId) {
     const state = await getPollState();
     const snacks = await all(`
-        SELECT s.id, s.name, s.description, s.price, s.image_url, s.active, s.sort_order,
+        SELECT s.id, s.name, s.description, s.price, s.image_url, s.category, s.active, s.sort_order,
                COUNT(v.id) AS votes
         FROM snacks s LEFT JOIN votes v ON v.snack_id = s.id
         WHERE s.active = 1
         GROUP BY s.id ORDER BY votes DESC, s.sort_order ASC, s.id ASC
     `);
-    const ranked = snacks.map((snack, index) => ({ ...snack, votes: Number(snack.votes), rank: index + 1 }));
-    const vote = await get("SELECT snack_id FROM votes WHERE user_id = ?", [userId]);
-    const totalVoters = await get("SELECT COUNT(*) AS count FROM votes");
-    return { ...state, snacks: ranked, selectedSnackId: vote?.snack_id || null, totalVoters: totalVoters.count };
+    const rankByCategory = { snack: 0, drink: 0 };
+    const ranked = snacks.map(snack => ({ ...snack, votes: Number(snack.votes), rank: ++rankByCategory[snack.category] }));
+    const votes = await all("SELECT snack_id, category FROM votes WHERE user_id = ?", [userId]);
+    const selectedSnackIds = Object.fromEntries(votes.map(vote => [vote.category, vote.snack_id]));
+    const totalVoters = await get("SELECT COUNT(DISTINCT user_id) AS count FROM votes");
+    const completedVoters = await get("SELECT COUNT(*) AS count FROM (SELECT user_id FROM votes GROUP BY user_id HAVING COUNT(DISTINCT category) = 2)");
+    return { ...state, snacks: ranked, selectedSnackIds, totalVoters: totalVoters.count, completedVoters: completedVoters.count };
 }
 
 router.get("/", requireLogin, async (req, res) => {
@@ -46,10 +49,10 @@ router.post("/vote", requireLogin, async (req, res) => {
         const { snackId } = req.body;
         const state = await getPollState();
         if (state.status !== "open") return res.status(403).json({ success: false, message: state.status === "ended" ? "本次投票已結束" : "投票尚未開始，請等待管理員開放。" });
-        const snack = await get("SELECT id FROM snacks WHERE id = ? AND active = 1", [snackId]);
+        const snack = await get("SELECT id, category FROM snacks WHERE id = ? AND active = 1", [snackId]);
         if (!snack) return res.status(400).json({ success: false, message: "請選擇有效的點心選項" });
-        await run(`INSERT INTO votes (user_id, snack_id, voted_at) VALUES (?, ?, CURRENT_TIMESTAMP)
-                   ON CONFLICT(user_id) DO UPDATE SET snack_id = excluded.snack_id, voted_at = CURRENT_TIMESTAMP`, [req.session.user.id, snackId]);
+        await run(`INSERT INTO votes (user_id, snack_id, category, voted_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                   ON CONFLICT(user_id, category) DO UPDATE SET snack_id = excluded.snack_id, voted_at = CURRENT_TIMESTAMP`, [req.session.user.id, snackId, snack.category]);
         res.json({ success: true, message: "已儲存你的選擇", ...(await snapshot(req.session.user.id)) });
     } catch (error) { console.error(error); res.status(500).json({ success: false, message: "投票儲存失敗" }); }
 });
