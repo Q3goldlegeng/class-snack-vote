@@ -189,42 +189,6 @@ async function initDatabase() {
         ]
     );
 
-    // =========================
-    // 43 Students
-    // =========================
-
-    const studentPassword = "123456";
-
-    const studentHash = await bcrypt.hash(
-        studentPassword,
-        12
-    );
-
-    for (let i = 1; i <= 43; i++) {
-        const username =
-            `student${String(i).padStart(2, "0")}`;
-
-        const name = `學生${i}`;
-
-        await run(
-            `
-            INSERT INTO users (
-                username,
-                name,
-                password_hash,
-                role,
-                must_change_password
-            )
-            VALUES (?, ?, ?, 'student', TRUE)
-            ON CONFLICT (username) DO NOTHING
-            `,
-            [
-                username,
-                name,
-                studentHash
-            ]
-        );
-    }
 
     // =========================
     // Default Snacks

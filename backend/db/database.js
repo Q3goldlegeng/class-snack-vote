@@ -1,7 +1,9 @@
 const { Pool } = require("pg");
 
 if (!process.env.DATABASE_URL) {
-    throw new Error("DATABASE_URL 未設定，無法連接 PostgreSQL。");
+    throw new Error(
+        "DATABASE_URL 未設定，無法連接 PostgreSQL。"
+    );
 }
 
 const pool = new Pool({
@@ -61,14 +63,20 @@ async function transaction(callback) {
         await client.query("COMMIT");
 
         return result;
+
     } catch (error) {
+
         try {
             await client.query("ROLLBACK");
         } catch (rollbackError) {
-            console.error("ROLLBACK 失敗：", rollbackError);
+            console.error(
+                "ROLLBACK 失敗：",
+                rollbackError
+            );
         }
 
         throw error;
+
     } finally {
         client.release();
     }
@@ -80,5 +88,6 @@ module.exports = {
     get,
     all,
     transaction,
+
     close: () => pool.end()
 };
