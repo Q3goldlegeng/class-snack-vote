@@ -5,11 +5,21 @@ const { requireLogin } = require("../middleware/auth");
 
 const router = express.Router();
 
+// =========================
+// Database helpers
+// =========================
+
 function getUserByUsername(username) {
     return new Promise((resolve, reject) => {
         db.get(
             `
-            SELECT *
+            SELECT
+                id,
+                username,
+                name,
+                password_hash,
+                role,
+                must_change_password
             FROM users
             WHERE username = ?
             `,
@@ -29,7 +39,12 @@ function getUserById(id) {
     return new Promise((resolve, reject) => {
         db.get(
             `
-            SELECT id, username, name, role, must_change_password
+            SELECT
+                id,
+                username,
+                name,
+                role,
+                must_change_password
             FROM users
             WHERE id = ?
             `,
@@ -45,8 +60,10 @@ function getUserById(id) {
     });
 }
 
-
+// =========================
 // POST /api/auth/login
+// =========================
+
 router.post("/login", async (req, res) => {
     try {
         const { username, password } = req.body;
@@ -79,8 +96,9 @@ router.post("/login", async (req, res) => {
             });
         }
 
+        // 建立 Session
         req.session.user = {
-            id: user.id,
+            id: Number(user.id),
             username: user.username,
             name: user.name,
             role: user.role
@@ -90,16 +108,18 @@ router.post("/login", async (req, res) => {
             success: true,
             message: "登入成功",
             user: {
-                id: user.id,
+                id: Number(user.id),
                 username: user.username,
                 name: user.name,
                 role: user.role,
-                mustChangePassword: Boolean(user.must_change_password)
+                mustChangePassword: Boolean(
+                    user.must_change_password
+                )
             }
         });
 
     } catch (error) {
-        console.error(error);
+        console.error("登入失敗：", error);
 
         res.status(500).json({
             success: false,
@@ -108,12 +128,14 @@ router.post("/login", async (req, res) => {
     }
 });
 
-
+// =========================
 // POST /api/auth/logout
+// =========================
+
 router.post("/logout", (req, res) => {
-    req.session.destroy((err) => {
+    req.session.destroy(err => {
         if (err) {
-            console.error(err);
+            console.error("登出失敗：", err);
 
             return res.status(500).json({
                 success: false,
@@ -130,11 +152,15 @@ router.post("/logout", (req, res) => {
     });
 });
 
-
+// =========================
 // GET /api/auth/me
+// =========================
+
 router.get("/me", requireLogin, async (req, res) => {
     try {
-        const user = await getUserById(req.session.user.id);
+        const user = await getUserById(
+            req.session.user.id
+        );
 
         if (!user) {
             return res.status(401).json({
@@ -146,16 +172,18 @@ router.get("/me", requireLogin, async (req, res) => {
         res.json({
             success: true,
             user: {
-                id: user.id,
+                id: Number(user.id),
                 username: user.username,
                 name: user.name,
                 role: user.role,
-                mustChangePassword: Boolean(user.must_change_password)
+                mustChangePassword: Boolean(
+                    user.must_change_password
+                )
             }
         });
 
     } catch (error) {
-        console.error(error);
+        console.error("取得使用者資料失敗：", error);
 
         res.status(500).json({
             success: false,
@@ -164,91 +192,112 @@ router.get("/me", requireLogin, async (req, res) => {
     }
 });
 
-
+// =========================
 // POST /api/auth/change-password
-router.post("/change-password", requireLogin, async (req, res) => {
-    try {
-        const { oldPassword, newPassword } = req.body;
+// =========================
 
-        if (!oldPassword || !newPassword) {
-            return res.status(400).json({
-                success: false,
-                message: "請填寫完整資訊"
-            });
-        }
+router.post(
+    "/change-password",
+    requireLogin,
+    async (req, res) => {
+        try {
+            const {
+                oldPassword,
+                newPassword
+            } = req.body;
 
-        if (newPassword.length < 6) {
-            return res.status(400).json({
-                success: false,
-                message: "新密碼至少需要 6 個字元"
-            });
-        }
+            if (!oldPassword || !newPassword) {
+                return res.status(400).json({
+                    success: false,
+                    message: "請填寫完整資訊"
+                });
+            }
 
-        const user = await new Promise((resolve, reject) => {
-            db.get(
-                `
-                SELECT *
-                FROM users
-                WHERE id = ?
-                `,
-                [req.session.user.id],
-                (err, row) => {
-                    if (err) reject(err);
-                    else resolve(row);
+            if (newPassword.length < 6) {
+                return res.status(400).json({
+                    success: false,
+                    message: "新密碼至少需要 6 個字元"
+                });
+            }
+
+            const user = await new Promise(
+                (resolve, reject) => {
+                    db.get(
+                        `
+                        SELECT *
+                        FROM users
+                        WHERE id = ?
+                        `,
+                        [req.session.user.id],
+                        (err, row) => {
+                            if (err) {
+                                reject(err);
+                            } else {
+                                resolve(row);
+                            }
+                        }
+                    );
                 }
             );
-        });
 
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: "找不到使用者"
-            });
-        }
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    message: "找不到使用者"
+                });
+            }
 
-        const correct = await bcrypt.compare(
-            oldPassword,
-            user.password_hash
-        );
-
-        if (!correct) {
-            return res.status(400).json({
-                success: false,
-                message: "原密碼錯誤"
-            });
-        }
-
-        const newHash = await bcrypt.hash(newPassword, 12);
-
-        await new Promise((resolve, reject) => {
-            db.run(
-                `
-                UPDATE users
-                SET password_hash = ?,
-                    must_change_password = 0
-                WHERE id = ?
-                `,
-                [newHash, user.id],
-                (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                }
+            const correct = await bcrypt.compare(
+                oldPassword,
+                user.password_hash
             );
-        });
 
-        res.json({
-            success: true,
-            message: "密碼修改成功"
-        });
+            if (!correct) {
+                return res.status(400).json({
+                    success: false,
+                    message: "原密碼錯誤"
+                });
+            }
 
-    } catch (error) {
-        console.error(error);
+            const newHash = await bcrypt.hash(
+                newPassword,
+                12
+            );
 
-        res.status(500).json({
-            success: false,
-            message: "伺服器錯誤"
-        });
+            await new Promise((resolve, reject) => {
+                db.run(
+                    `
+                    UPDATE users
+                    SET
+                        password_hash = ?,
+                        must_change_password = FALSE
+                    WHERE id = ?
+                    `,
+                    [newHash, user.id],
+                    err => {
+                        if (err) {
+                            reject(err);
+                        } else {
+                            resolve();
+                        }
+                    }
+                );
+            });
+
+            res.json({
+                success: true,
+                message: "密碼修改成功"
+            });
+
+        } catch (error) {
+            console.error("修改密碼失敗：", error);
+
+            res.status(500).json({
+                success: false,
+                message: "伺服器錯誤"
+            });
+        }
     }
-});
+);
 
 module.exports = router;
