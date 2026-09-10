@@ -25,8 +25,44 @@ async function addColumn(sql) {
     }
 }
 
+async function initPostgres() {
+    await run(`CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY, username TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+        password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin', 'student')),
+        must_change_password BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    )`);
+    await run(`CREATE TABLE IF NOT EXISTS snacks (
+        id SERIAL PRIMARY KEY, name TEXT NOT NULL, description TEXT, price INTEGER, image_url TEXT,
+        category TEXT NOT NULL DEFAULT 'snack' CHECK(category IN ('snack', 'drink')),
+        sort_order INTEGER DEFAULT 0, active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    )`);
+    await run(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    await run(`CREATE TABLE IF NOT EXISTS votes (
+        id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        snack_id INTEGER NOT NULL REFERENCES snacks(id), category TEXT NOT NULL CHECK(category IN ('snack', 'drink')),
+        voted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, category)
+    )`);
+    for (const key of ['poll_status', 'poll_date', 'poll_start_at', 'poll_end_at']) {
+        await run("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", [key, key === 'poll_status' ? 'not_started' : '']);
+    }
+    const adminHash = await bcrypt.hash("admin123", 12);
+    await run(`INSERT INTO users (username, name, password_hash, role, must_change_password)
+               VALUES (?, ?, ?, 'admin', FALSE) ON CONFLICT (username) DO NOTHING`, ['admin', '管理員', adminHash]);
+    const studentHash = await bcrypt.hash("123456", 12);
+    for (let i = 1; i <= 43; i++) {
+        await run(`INSERT INTO users (username, name, password_hash, role, must_change_password)
+                   VALUES (?, ?, ?, 'student', TRUE) ON CONFLICT (username) DO NOTHING`, [`student${String(i).padStart(2, '0')}`, `學生${i}`, studentHash]);
+    }
+    const snacks = [['香脆雞排', '現炸雞排，胡椒香氣十足', 75, 1, 'snack'], ['珍珠奶茶', '經典黑糖珍珠奶茶', 55, 2, 'drink'], ['巧克力鬆餅', '外脆內軟的午後點心', 65, 3, 'snack'], ['起司熱狗', '濃郁起司與熱狗', 50, 4, 'snack'], ['水果優格杯', '清爽水果與優格', 60, 5, 'drink']];
+    for (const [name, description, price, sortOrder, category] of snacks) {
+        await run(`INSERT INTO snacks (name, description, price, sort_order, category)
+                   SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM snacks WHERE name = ?)`, [name, description, price, sortOrder, category, name]);
+    }
+}
+
 async function initDatabase() {
     console.log("正在初始化資料庫...");
+    if (db.isPostgres) { await initPostgres(); console.log("Supabase PostgreSQL 初始化完成！"); return; }
 
     // 使用者
     await run(`

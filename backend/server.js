@@ -2,7 +2,6 @@ require("dotenv").config();
 
 const express = require("express");
 const session = require("express-session");
-const SQLiteStore = require("connect-sqlite3")(session);
 const cors = require("cors");
 const path = require("path");
 
@@ -16,6 +15,7 @@ const adminRoutes = require("./routes/admin");
 const app = express();
 
 const PORT = process.env.PORT || 3000;
+const SQLiteStore = !db.isPostgres ? require("connect-sqlite3")(session) : null;
 const sessionDir = process.env.DATABASE_DIR || path.join(__dirname, "database");
 
 
@@ -40,10 +40,7 @@ app.use(
 
 app.use(
     session({
-        store: new SQLiteStore({
-            db: "sessions.db",
-            dir: sessionDir
-        }),
+        ...(db.isPostgres ? {} : { store: new SQLiteStore({ db: "sessions.db", dir: sessionDir }) }),
 
         secret: process.env.SESSION_SECRET,
 

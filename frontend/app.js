@@ -1,20 +1,103 @@
-const app=document.querySelector('#app');let me,poll,chosenIds={snack:null,drink:null},adminData;
-const api=async(u,o={})=>{const r=await fetch('/api'+u,{credentials:'include',headers:{'Content-Type':'application/json',...(o.headers||{})},...o}),d=await r.json().catch(()=>({message:'伺服器回應錯誤'}));if(!r.ok)throw Error(d.message||'操作失敗');return d};
-const esc=v=>String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-const icon=s=>s.image_url?`<img class="snack-image" src="${esc(s.image_url)}" alt="${esc(s.name)}">`:`<span class="food">${s.category==='drink'?'🥤':'🍪'}</span>`;
-function login(msg=''){app.innerHTML=`<section class="login"><div class="ticket-head"><div class="brand"><small>CLASS SNACK VOTE</small>今日點心票選</div><p>登入後，為你想吃的點心投下一票。</p></div><form class="form" id="login"><label class="field">帳號<input name="username" required placeholder="student01"></label><label class="field">密碼<input name="password" type="password" required></label><button class="action primary">登入</button><p class="error">${esc(msg)}</p></form></section>`;document.querySelector('#login').onsubmit=async e=>{e.preventDefault();try{me=(await api('/auth/login',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))})).user;load()}catch(x){login(x.message)}}}
-function shell(x){return `<div class="shell"><header class="masthead"><div class="brand"><small>CLASS SNACK VOTE</small>今日點心票選</div><div class="userbar">${esc(me.name)}<br><button class="action subtle mini" id="pw">修改密碼</button><button class="action subtle mini" id="out">登出</button></div></header>${x}</div>`}
-function common(){document.querySelector('#out').onclick=async()=>{await api('/auth/logout',{method:'POST'});login()};document.querySelector('#pw').onclick=async()=>{const oldPassword=prompt('目前密碼'),newPassword=prompt('新密碼（至少 6 個字元）');if(oldPassword&&newPassword)try{await api('/auth/change-password',{method:'POST',body:JSON.stringify({oldPassword,newPassword})});alert('密碼修改成功')}catch(e){alert(e.message)}}}
-const time=v=>v?new Date(v).toLocaleString('zh-TW',{dateStyle:'medium',timeStyle:'short'}):'';
-function group(category,title){let a=poll.snacks.filter(s=>s.category===category);return a.length?`<section class="choice-section"><h2>${title} <span class="hint">${chosenIds[category]?'已選擇':'請選一項'}</span></h2><div class="snacks">${a.map(s=>`<button class="snack ${chosenIds[category]===s.id?'selected':''}" data-id="${s.id}" data-category="${category}"><span class="rank">#${s.rank}</span>${icon(s)}<h3>${esc(s.name)}</h3><p>${esc(s.description)}</p><span class="price">${s.price?'$'+s.price:''}</span></button>`).join('')}</div></section>`:''}
-function results(){let sections=['snack','drink'].map(category=>{let list=poll.snacks.filter(s=>s.category===category),max=Math.max(...list.map(s=>s.votes),1);return `<section class="choice-section"><h2>${category==='snack'?'點心':'飲料'}排名</h2>${list.map(s=>`<div class="result-row"><strong>#${s.rank}</strong><div><b>${esc(s.name)}</b><div class="bar"><i style="width:${s.votes/max*100}%"></i></div></div><strong>${s.votes} 票</strong></div>`).join('')}</section>`}).join('');return `<section class="results"><h2>投票統計 <span class="hint">${poll.completedVoters||0} / 43 人已完成兩項選擇</span></h2>${sections}</section>`}
-function student(){let m={not_started:['尚未開始','投票尚未開始，請等待管理員開放。'],open:['投票進行中','每人可選 1 個點心與 1 杯飲料，開放期間可以修改。'],ended:['投票已結束','本次投票已結束']}[poll.status],info=[poll.pollDate&&`供應日期：${poll.pollDate}`,poll.startAt&&`投票時間：${time(poll.startAt)} ～ ${poll.endAt?time(poll.endAt):'未設定'}`].filter(Boolean).join('　｜　'),ready=chosenIds.snack&&chosenIds.drink;let choose=poll.status==='open'?`${group('snack','選點心')}${group('drink','選飲料')}<div class="actions"><span class="hint">${ready?'點心與飲料都已選好，可隨時點選其他品項修改。':'請各選一個點心與飲料；選擇後會立即儲存。'}</span></div>`:`<div class="notice">${m[1]}</div>`;app.innerHTML=shell(`<section class="ticket"><div class="ticket-head"><h1>${poll.status==='ended'?'結果揭曉':'投票時間'}</h1><p>${info||m[1]}</p></div><div class="content"><div class="status ${poll.status}"><i class="dot"></i>${m[0]}</div>${choose}${poll.status!=='not_started'?results():''}</div></section>`);common();document.querySelectorAll('.snack').forEach(b=>b.onclick=()=>vote(+b.dataset.id,b.dataset.category));}
-async function vote(snackId,category){try{poll=await api('/poll/vote',{method:'POST',body:JSON.stringify({snackId})});chosenIds={...chosenIds,...poll.selectedSnackIds,[category]:snackId};student()}catch(e){alert(e.message)}}
-const local=v=>v?v.slice(0,16):'';
-function admin(){let state={not_started:'尚未開始',open:'投票中',ended:'已結束'};app.innerHTML=shell(`<section class="ticket"><div class="ticket-head"><h1>投票控制台</h1><p>設定供應日期、投票時間與每個品項。</p></div><div class="content"><div class="admin-grid"><div class="metric">目前狀態<b>${state[adminData.status]}</b></div><div class="metric">已投票<b>${adminData.votedCount} / ${adminData.studentCount}</b></div><div class="metric">可用選項<b>${adminData.snacks.filter(s=>s.active).length}</b></div></div><section class="admin-section"><h2>供應與投票時間</h2><form class="schedule" id="schedule"><div class="schedule-grid"><label>要吃的日期<input name="pollDate" type="date" value="${esc(adminData.pollDate)}"></label><label>開始投票時間<input name="startAt" type="datetime-local" value="${local(adminData.startAt)}"></label><label>結束投票時間<input name="endAt" type="datetime-local" value="${local(adminData.endAt)}"></label></div><div class="actions"><button class="action primary">儲存時間設定</button><span class="hint">設定後會自動切換投票狀態。</span></div></form></section><div class="actions"><button class="action" data-state="not_started">設為尚未開始</button><button class="action primary" data-state="open">開始投票</button><button class="action danger" data-state="ended">結束投票</button></div><section class="admin-section"><h2>新增品項</h2><form id="add" class="snack-form"><select name="category"><option value="snack">點心</option><option value="drink">飲料</option></select><input name="name" required placeholder="名稱"><input name="description" placeholder="簡短說明"><input name="price" type="number" min="0" placeholder="價格"><input name="image" type="file" accept="image/*"><button class="action primary">新增</button></form><p class="hint">圖片可不傳，最大 2 MB。</p></section><section class="admin-section"><h2>品項與票數</h2><div class="table-wrap"><table class="table"><thead><tr><th>品項</th><th>分類</th><th>票數</th><th>狀態</th><th></th></tr></thead><tbody>${adminData.snacks.map(s=>`<tr><td>${s.image_url?`<img class="preview" src="${esc(s.image_url)}" alt="">`:''}<b>${esc(s.name)}</b><br><span class="hint">${esc(s.description||'')} ${s.price?'$'+s.price:''}</span></td><td>${s.category==='drink'?'飲料':'點心'}</td><td>${s.votes}</td><td>${s.active?'開放':'隱藏'}</td><td><button class="action subtle mini" data-edit="${s.id}">編輯</button></td></tr>`).join('')}</tbody></table></div></section></div></section>`);common();document.querySelector('#schedule').onsubmit=schedule;document.querySelector('#add').onsubmit=add;document.querySelectorAll('[data-state]').forEach(b=>b.onclick=()=>status(b.dataset.state));document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>edit(+b.dataset.edit))}
-async function status(s){try{adminData=await api('/admin/status',{method:'PUT',body:JSON.stringify({status:s})});admin()}catch(e){alert(e.message)}}
-async function schedule(e){e.preventDefault();try{adminData=await api('/admin/schedule',{method:'PUT',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});admin()}catch(e){alert(e.message)}}
-function image(file){return new Promise((ok,no)=>{if(!file)return ok('');if(file.size>2097152)return no(Error('圖片最大 2 MB'));let r=new FileReader;r.onload=()=>ok(r.result);r.readAsDataURL(file)})}
-async function add(e){e.preventDefault();try{let f=new FormData(e.target),b=Object.fromEntries(f);b.imageUrl=await image(f.get('image'));delete b.image;adminData=await api('/admin/snacks',{method:'POST',body:JSON.stringify(b)});admin()}catch(e){alert(e.message)}}
-async function edit(id){let s=adminData.snacks.find(x=>x.id===id),name=prompt('名稱',s.name);if(name===null)return;let description=prompt('簡短說明',s.description||'');if(description===null)return;let price=prompt('價格',s.price||'');if(price===null)return;let category=confirm('確定＝點心；取消＝飲料'),active=confirm('確定＝開放；取消＝隱藏'),imageUrl=s.image_url||'';if(confirm('要更換或新增圖片嗎？')){let picker=document.createElement('input');picker.type='file';picker.accept='image/*';picker.onchange=async()=>{try{imageUrl=await image(picker.files[0]);save()}catch(e){alert(e.message)}};picker.click()}else save();async function save(){try{adminData=await api('/admin/snacks/'+id,{method:'PUT',body:JSON.stringify({name,description,price,category:category?'snack':'drink',active,imageUrl})});admin()}catch(e){alert(e.message)}}}
-async function load(){try{me=(await api('/auth/me')).user;if(me.role==='admin'){adminData=await api('/admin/dashboard');admin()}else{poll=await api('/poll');chosenIds={snack:null,drink:null,...poll.selectedSnackIds};student()}}catch{login()}}load();
+const app = document.querySelector("#app");
+let me, poll, adminData;
+let chosen = { snack: null, drink: null };
+
+const api = async (url, options = {}) => {
+  const response = await fetch(`/api${url}`, { credentials: "include", headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
+  const data = await response.json().catch(() => ({ message: "伺服器回應錯誤，請重新啟動後端後再試一次。" }));
+  if (!response.ok) throw new Error(data.message || "操作失敗");
+  return data;
+};
+const esc = value => String(value ?? "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[char]));
+const dt = value => value ? new Date(value).toLocaleString("zh-TW", { dateStyle: "medium", timeStyle: "short" }) : "";
+const localDateTime = value => value ? value.slice(0, 16) : "";
+const itemImage = item => item.image_url ? `<img class="snack-image" src="${esc(item.image_url)}" alt="${esc(item.name)}">` : `<span class="food" aria-hidden="true">${item.category === "drink" ? "🥤" : "🍪"}</span>`;
+
+function flash(message, kind = "success") {
+  const old = document.querySelector(".flash");
+  old?.remove();
+  const notice = document.createElement("div");
+  notice.className = `flash ${kind}`;
+  notice.textContent = message;
+  document.body.append(notice);
+  setTimeout(() => notice.remove(), 3000);
+}
+
+function login(message = "") {
+  app.innerHTML = `<section class="login"><div class="ticket-head"><div class="brand"><small>CLASS SNACK VOTE</small>今日點心票選</div><p>登入後，選一個點心與一杯飲料。</p></div><form class="form" id="login"><label class="field">帳號<input name="username" required autocomplete="username" placeholder="學號"></label><label class="field">密碼<input name="password" type="password" required autocomplete="current-password"></label><button class="action primary">登入</button><p class="error">${esc(message)}</p></form></section>`;
+  document.querySelector("#login").onsubmit = async event => {
+    event.preventDefault();
+    try { me = (await api("/auth/login", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.target))) })).user; await load(); }
+    catch (error) { login(error.message); }
+  };
+}
+
+function shell(content) {
+  return `<div class="shell"><header class="masthead"><div class="brand"><small>CLASS SNACK VOTE</small>今日點心票選</div><div class="userbar">${esc(me.name)}<br><button class="action subtle mini" id="change-password">修改密碼</button><button class="action subtle mini" id="logout">登出</button></div></header>${content}</div>`;
+}
+
+function bindCommon() {
+  document.querySelector("#logout").onclick = async () => { await api("/auth/logout", { method: "POST" }); login(); };
+  document.querySelector("#change-password").onclick = async () => {
+    const oldPassword = prompt("目前密碼"); if (oldPassword === null) return;
+    const newPassword = prompt("新密碼（至少 6 個字元）"); if (newPassword === null) return;
+    try { await api("/auth/change-password", { method: "POST", body: JSON.stringify({ oldPassword, newPassword }) }); flash("密碼修改成功"); }
+    catch (error) { flash(error.message, "error"); }
+  };
+}
+
+function choiceGroup(category, title) {
+  const items = poll.snacks.filter(item => item.category === category);
+  return `<section class="choice-section"><h2>${title} <span class="hint">${chosen[category] ? "已選擇，可重新選擇" : "請選一項"}</span></h2><div class="snacks">${items.map(item => `<button class="snack ${chosen[category] === item.id ? "selected" : ""}" data-vote-id="${item.id}"><span class="rank">#${item.rank}</span>${itemImage(item)}<h3>${esc(item.name)}</h3><p>${esc(item.description)}</p><span class="price">${item.price ? "$" + item.price : ""}</span></button>`).join("")}</div></section>`;
+}
+
+function results() {
+  const sections = ["snack", "drink"].map(category => {
+    const items = poll.snacks.filter(item => item.category === category);
+    const max = Math.max(...items.map(item => item.votes), 1);
+    return `<section class="choice-section ranking ${category}"><h2>${category === "snack" ? "點心" : "飲料"}排名</h2>${items.slice().sort((a, b) => a.rank - b.rank).map(item => `<div class="result-row"><strong>#${item.rank}</strong><div><b>${esc(item.name)}</b><div class="bar"><i style="width:${item.votes / max * 100}%"></i></div></div><strong>${item.votes} 票</strong></div>`).join("")}</section>`;
+  }).join("");
+  return `<section class="results"><h2>投票統計 <span class="hint">${poll.completedVoters} / 43 人已完成兩項選擇</span></h2>${sections}</section>`;
+}
+
+function student() {
+  const copy = { not_started: ["尚未開始", "投票尚未開始，請等待管理員開放。"], open: ["投票進行中", "每人選一個點心與一杯飲料；投票期間可重新選擇。"], ended: ["投票已結束", "本次投票已結束"] }[poll.status];
+  const info = [poll.pollDate && `供應日期：${poll.pollDate}`, poll.startAt && `投票時間：${dt(poll.startAt)} ～ ${poll.endAt ? dt(poll.endAt) : "未設定"}`].filter(Boolean).join("　｜　");
+  const content = poll.status === "open" ? `${choiceGroup("snack", "選點心")}${choiceGroup("drink", "選飲料")}<p class="hint">點選品項後會立即儲存。兩區都可隨時重新選擇。</p>` : `<div class="notice">${copy[1]}</div>`;
+  app.innerHTML = shell(`<section class="ticket"><div class="ticket-head"><h1>${poll.status === "ended" ? "結果揭曉" : "投票時間"}</h1><p>${info || copy[1]}</p></div><div class="content"><div class="status ${poll.status}"><i class="dot"></i>${copy[0]}</div>${content}${poll.status !== "not_started" ? results() : ""}</div></section>`);
+  bindCommon();
+  document.querySelectorAll("[data-vote-id]").forEach(button => button.onclick = () => submitVote(Number(button.dataset.voteId)));
+}
+
+async function submitVote(snackId) {
+  try {
+    const data = await api("/poll/vote", { method: "POST", body: JSON.stringify({ snackId }) });
+    poll = data;
+    chosen = { snack: null, drink: null, ...data.selectedSnackIds };
+    flash(data.message);
+    student();
+  } catch (error) { flash(error.message, "error"); }
+}
+
+function admin() {
+  const status = { not_started: "尚未開始", open: "投票中", ended: "已結束" }[adminData.status];
+  app.innerHTML = shell(`<section class="ticket"><div class="ticket-head"><h1>投票控制台</h1><p>設定日期、管理品項、查看每位學生的投票。</p></div><div class="content"><div class="admin-grid"><div class="metric">目前狀態<b>${status}</b></div><div class="metric">已投票人數<b>${adminData.votedCount} / ${adminData.studentCount}</b><span class="hint">${adminData.completedVoters} 人完成兩項</span></div><div class="metric">可用選項<b>${adminData.snacks.filter(item => item.active).length}</b></div></div><section class="admin-section"><h2>供應與投票時間</h2><form class="schedule" id="schedule"><div class="schedule-grid"><label>要吃的日期<input name="pollDate" type="date" value="${esc(adminData.pollDate)}"></label><label>開始投票時間<input name="startAt" type="datetime-local" value="${localDateTime(adminData.startAt)}"></label><label>結束投票時間<input name="endAt" type="datetime-local" value="${localDateTime(adminData.endAt)}"></label></div><div class="actions"><button class="action primary">儲存時間設定</button><span class="hint">設為空白即取消自動排程。</span></div></form></section><div class="actions"><button class="action subtle" data-status="not_started">設為尚未開始</button><button class="action primary" data-status="open">開始投票</button><button class="action danger" data-status="ended">結束投票</button></div><section class="admin-section"><h2>新增品項</h2><form id="add-item" class="snack-form"><select name="category"><option value="snack">點心</option><option value="drink">飲料</option></select><input name="name" required placeholder="名稱"><input name="description" placeholder="簡短說明（可留白）"><input name="price" type="number" min="0" placeholder="價格（可留白）"><input name="image" type="file" accept="image/*"><button class="action primary">新增</button></form><p class="hint">圖片可不傳；上限 2 MB。</p></section><section class="admin-section"><h2>帳號 CSV 匯入</h2><div class="actions"><a class="action subtle" href="/student_accounts_template.csv" download>下載 CSV 範本</a><form id="import-users"><input name="csv" type="file" accept=".csv,text/csv" required><button class="action primary">匯入學生帳號</button></form></div><p class="hint">欄位固定為 student_id、name、password。相同學號會更新姓名與密碼。</p></section><section class="admin-section"><h2>品項與票數</h2><div class="table-wrap"><table class="table"><thead><tr><th>品項</th><th>分類</th><th>票數</th><th>狀態</th><th>操作</th></tr></thead><tbody>${adminData.snacks.map(item => `<tr><td>${item.image_url ? `<img class="preview" src="${esc(item.image_url)}" alt="">` : ""}<b>${esc(item.name)}</b><br><span class="hint">${esc(item.description || "")} ${item.price ? "$" + item.price : ""}</span></td><td>${item.category === "drink" ? "飲料" : "點心"}</td><td>${item.votes}</td><td>${item.active ? "開放" : "隱藏"}</td><td><button class="action subtle mini" data-edit="${item.id}">編輯</button><button class="action danger mini" data-delete="${item.id}">刪除</button></td></tr>`).join("")}</tbody></table></div></section><section class="admin-section"><h2>誰投了什麼</h2><div class="table-wrap"><table class="table"><thead><tr><th>學號</th><th>姓名</th><th>點心</th><th>飲料</th></tr></thead><tbody>${adminData.voteDetails.length ? adminData.voteDetails.map(row => `<tr><td>${esc(row.username)}</td><td>${esc(row.name)}</td><td>${esc(row.snack_name || "尚未選擇")}</td><td>${esc(row.drink_name || "尚未選擇")}</td></tr>`).join("") : "<tr><td colspan=\"4\">目前尚未有人投票。</td></tr>"}</tbody></table></div></section></div></section>`);
+  bindCommon();
+  document.querySelector("#schedule").onsubmit = saveSchedule;
+  document.querySelector("#add-item").onsubmit = addItem;
+  document.querySelector("#import-users").onsubmit = importUsers;
+  document.querySelectorAll("[data-status]").forEach(button => button.onclick = () => updateStatus(button.dataset.status));
+  document.querySelectorAll("[data-edit]").forEach(button => button.onclick = () => editItem(Number(button.dataset.edit)));
+  document.querySelectorAll("[data-delete]").forEach(button => button.onclick = () => deleteItem(Number(button.dataset.delete)));
+}
+
+async function refreshAdmin(data, message) { adminData = data; admin(); if (message) flash(message); }
+async function updateStatus(status) { try { const data = await api("/admin/status", { method: "PUT", body: JSON.stringify({ status }) }); await refreshAdmin(data, data.message); } catch (error) { flash(error.message, "error"); } }
+async function saveSchedule(event) { event.preventDefault(); try { const data = await api("/admin/schedule", { method: "PUT", body: JSON.stringify(Object.fromEntries(new FormData(event.target))) }); await refreshAdmin(data, data.message); } catch (error) { flash(error.message, "error"); } }
+function fileToDataUrl(file) { return new Promise((resolve, reject) => { if (!file || file.size === 0) return resolve(""); if (file.size > 2 * 1024 * 1024) return reject(new Error("圖片最大 2 MB")); const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = () => reject(new Error("圖片讀取失敗")); reader.readAsDataURL(file); }); }
+async function addItem(event) { event.preventDefault(); try { const form = new FormData(event.target); const body = Object.fromEntries(form); body.imageUrl = await fileToDataUrl(form.get("image")); delete body.image; const data = await api("/admin/snacks", { method: "POST", body: JSON.stringify(body) }); await refreshAdmin(data, "品項新增成功"); } catch (error) { flash(error.message, "error"); } }
+async function deleteItem(id) { if (!confirm("確定刪除此品項？已投給它的票也會一併移除。")) return; try { const data = await api(`/admin/snacks/${id}`, { method: "DELETE" }); await refreshAdmin(data, data.message); } catch (error) { flash(error.message, "error"); } }
+async function editItem(id) { const item = adminData.snacks.find(row => row.id === id); const name = prompt("名稱", item.name); if (name === null) return; const description = prompt("簡短說明", item.description || ""); if (description === null) return; const price = prompt("價格", item.price || ""); if (price === null) return; const category = confirm("確定＝點心；取消＝飲料") ? "snack" : "drink"; const active = confirm("確定＝開放；取消＝隱藏"); let imageUrl = item.image_url || ""; const save = async () => { try { const data = await api(`/admin/snacks/${id}`, { method: "PUT", body: JSON.stringify({ name, description, price, category, active, imageUrl }) }); await refreshAdmin(data, "品項修改成功"); } catch (error) { flash(error.message, "error"); } }; if (!confirm("要更換或新增圖片嗎？")) return save(); const picker = document.createElement("input"); picker.type = "file"; picker.accept = "image/*"; picker.onchange = async () => { try { imageUrl = await fileToDataUrl(picker.files[0]); await save(); } catch (error) { flash(error.message, "error"); } }; picker.click(); }
+async function importUsers(event) { event.preventDefault(); const file = new FormData(event.target).get("csv"); if (!file?.size) return; try { const csvText = await file.text(); const data = await api("/admin/users/import", { method: "POST", body: JSON.stringify({ csvText }) }); await refreshAdmin(data, data.message); } catch (error) { flash(error.message, "error"); } }
+async function load() { try { me = (await api("/auth/me")).user; if (me.role === "admin") { adminData = await api("/admin/dashboard"); admin(); } else { poll = await api("/poll"); chosen = { snack: null, drink: null, ...poll.selectedSnackIds }; student(); } } catch { login(); } }
+load();

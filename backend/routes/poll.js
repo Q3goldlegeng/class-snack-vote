@@ -27,10 +27,16 @@ async function snapshot(userId) {
                COUNT(v.id) AS votes
         FROM snacks s LEFT JOIN votes v ON v.snack_id = s.id
         WHERE s.active = 1
-        GROUP BY s.id ORDER BY votes DESC, s.sort_order ASC, s.id ASC
+        GROUP BY s.id ORDER BY s.category ASC, s.sort_order ASC, s.id ASC
     `);
-    const rankByCategory = { snack: 0, drink: 0 };
-    const ranked = snacks.map(snack => ({ ...snack, votes: Number(snack.votes), rank: ++rankByCategory[snack.category] }));
+    const ranks = new Map();
+    for (const category of ["snack", "drink"]) {
+        snacks.filter(snack => snack.category === category)
+            .slice()
+            .sort((a, b) => Number(b.votes) - Number(a.votes) || a.sort_order - b.sort_order || a.id - b.id)
+            .forEach((snack, index) => ranks.set(snack.id, index + 1));
+    }
+    const ranked = snacks.map(snack => ({ ...snack, votes: Number(snack.votes), rank: ranks.get(snack.id) }));
     const votes = await all("SELECT snack_id, category FROM votes WHERE user_id = ?", [userId]);
     const selectedSnackIds = Object.fromEntries(votes.map(vote => [vote.category, vote.snack_id]));
     const totalVoters = await get("SELECT COUNT(DISTINCT user_id) AS count FROM votes");

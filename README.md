@@ -9,15 +9,13 @@ npm start
 
 開啟 `http://localhost:3000`。
 
-## Render 雲端部署（SQLite 版本）
+## Render 免費方案部署（示範用）
 
 1. 將整個專案推送到 GitHub。
 2. 在 Render 建立 **Web Service**，選擇 Node。
 3. Root Directory 設為 `backend`；Build Command 設為 `npm install`；Start Command 設為 `npm start`。
-4. 設定環境變數：
-   - `SESSION_SECRET`：自行產生一段長而隨機的文字。
-   - `DATABASE_DIR`：`/var/data`
-5. 在 Advanced / Disks 新增 Persistent Disk：Mount Path 填 `/var/data`。
+4. 設定環境變數 `SESSION_SECRET`：自行產生一段長而隨機的文字。
+5. **不要設定 `DATABASE_DIR`，也不要新增 Persistent Disk**；這兩項在免費方案會造成 `/var/data` 權限錯誤。
 6. 部署完成後，使用 Render 提供的 `onrender.com` 網址開啟系統。
 
-> SQLite 的資料庫與登入工作階段都會儲存在 `DATABASE_DIR`。沒有 Persistent Disk 時，Render 重新部署或重啟後資料會遺失。
+> 免費方案的 SQLite 資料在 Render 休眠、重啟或重新部署後可能遺失，適合短期測試或一次性投票。需要永久保存資料時，請改用 PostgreSQL（例如 Neon、Supabase）或有持久磁碟的付費服務。
